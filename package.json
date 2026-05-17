@@ -1,0 +1,21 @@
+{
+  "name": "elektri-vorg-backend",
+  "version": "1.0.0",
+  "description": "Nutika Elektrivõrgu Juhtimiskeskus - backend",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js",
+    "test": "jest --forceExit"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "express": "^4.19.2",
+    "winston": "^3.13.0"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "nodemon": "^3.1.4",
+    "supertest": "^7.0.0"
+  }
+}
