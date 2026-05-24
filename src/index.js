@@ -3,7 +3,7 @@ const cors = require("cors");
 const { createServer } = require("http");
 const { WebSocketServer } = require("ws");
 const { getPriceDecision, get24HourForecast } = require("./priceService");
-const { initDB } = require("./db");
+const { initDB, pool } = require("./db");
 const { register, login, authenticate, requireAdmin } = require("./auth");
 const { getDevices, addDevice, updateDevice, deleteDevice, setOverride, logCommand } = require("./devices");
 const logger = require("./logger");
@@ -69,6 +69,46 @@ app.get("/api/forecast", async (req, res) => {
     res.json(forecast);
   } catch (error) {
     res.status(502).json({ error: "Failed to fetch forecast", message: error.message });
+  }
+});
+
+// Отчёт экономии
+app.get("/api/savings", authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(`
+      SELECT 
+        COUNT(*) FILTER (WHERE command = 'ON') as hours_on,
+        COUNT(*) FILTER (WHERE command = 'OFF') as hours_off,
+        AVG(price_eur) FILTER (WHERE command = 'ON') as avg_price_on,
+        AVG(price_eur) FILTER (WHERE command = 'OFF') as avg_price_off,
+        SUM(price_eur) FILTER (WHERE command = 'ON') as total_cost_smart,
+        COUNT(*) as total_commands
+      FROM command_logs
+      WHERE created_at > NOW() - INTERVAL '30 days'
+    `);
+
+    const stats = rows[0];
+    const hoursOn = parseInt(stats.hours_on) || 0;
+    const hoursOff = parseInt(stats.hours_off) || 0;
+    const avgPriceOn = parseFloat(stats.avg_price_on) || 0;
+    const avgPriceOff = parseFloat(stats.avg_price_off) || 0;
+    const totalCostSmart = parseFloat(stats.total_cost_smart) || 0;
+
+    const avgPriceAll = (totalCostSmart + (avgPriceOff * hoursOff)) / (hoursOn + hoursOff) || 0;
+    const costIfAlwaysOn = avgPriceAll * (hoursOn + hoursOff);
+    const savings = costIfAlwaysOn - totalCostSmart;
+
+    res.json({
+      hours_on: hoursOn,
+      hours_off: hoursOff,
+      avg_price_on: Math.round(avgPriceOn * 1000000) / 1000000,
+      avg_price_off: Math.round(avgPriceOff * 1000000) / 1000000,
+      total_cost_smart: Math.round(totalCostSmart * 1000000) / 1000000,
+      savings: Math.round(savings * 1000000) / 1000000,
+      period_days: 30,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
