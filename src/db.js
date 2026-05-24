@@ -24,6 +24,7 @@ async function initDB() {
         password VARCHAR(255) NOT NULL,
         role VARCHAR(10) DEFAULT 'user',
         vacation_mode BOOLEAN DEFAULT FALSE,
+        is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT NOW()
       );
 
@@ -48,9 +49,9 @@ async function initDB() {
       );
     `);
 
-    // Добавляем колонку если её нет (для существующей БД)
     await pool.query(`
       ALTER TABLE users ADD COLUMN IF NOT EXISTS vacation_mode BOOLEAN DEFAULT FALSE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE;
     `);
 
     logger.info("Database initialized");

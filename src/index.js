@@ -53,10 +53,8 @@ setInterval(async () => {
   try {
     const data = await getPriceDecision();
 
-    // Обновляем метрику цены
     electricityPrice.set(data.current_price_eur);
 
-    // Уведомление в Telegram если статус изменился
     if (lastStatus !== null && lastStatus !== data.status) {
       if (data.status === "ON") {
         await sendTelegram(`✅ <b>Бойлер включён!</b>\nЦена упала до <b>${data.current_price_eur} €/MWh</b>\nПорог: ${data.threshold} €/MWh`);
@@ -66,7 +64,6 @@ setInterval(async () => {
     }
     lastStatus = data.status;
 
-    // Логируем команду для всех устройств
     const { rows: devices } = await pool.query("SELECT id FROM devices");
     for (const device of devices) {
       await logCommand(device.id, data.status, data.current_price_eur);
@@ -195,6 +192,56 @@ app.post("/api/vacation", authenticate, async (req, res) => {
   }
 });
 
+// User Master — список всех пользователей (только admin)
+app.get("/api/admin/users", authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT id, username, role, is_active, vacation_mode, created_at FROM users ORDER BY created_at DESC"
+    );
+    res.json(rows);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// User Master — деактивировать/активировать пользователя (только admin)
+app.put("/api/admin/users/:id/status", authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { is_active } = req.body;
+    const { rows } = await pool.query(
+      "UPDATE users SET is_active = $1 WHERE id = $2 RETURNING id, username, role, is_active",
+      [is_active, req.params.id]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// User Master — удалить пользователя (только admin)
+app.delete("/api/admin/users/:id", authenticate, requireAdmin, async (req, res) => {
+  try {
+    await pool.query("DELETE FROM users WHERE id = $1", [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// User Master — изменить роль пользователя (только admin)
+app.put("/api/admin/users/:id/role", authenticate, requireAdmin, async (req, res) => {
+  try {
+    const { role } = req.body;
+    const { rows } = await pool.query(
+      "UPDATE users SET role = $1 WHERE id = $2 RETURNING id, username, role, is_active",
+      [role, req.params.id]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Авторизация
 app.post("/api/auth/register", async (req, res) => {
   try {
@@ -277,4 +324,5 @@ if (require.main === module) {
   });
 }
 
+module.exports = app;
 module.exports = app;
