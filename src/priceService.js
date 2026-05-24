@@ -21,11 +21,10 @@ async function getCurrentPrice() {
     throw new Error("No price data in Elering response");
   }
 
-  // Цена приходит в EUR/MWh → переводим в EUR/kWh с НДС 22%
   const priceEurMwh = data.data.ee[0].price;
   const priceEurKwh = (priceEurMwh / 1000) * 1.22;
 
-  return Math.round(priceEurKwh * 1000000) / 1000000; // 6 знаков после запятой
+  return Math.round(priceEurKwh * 1000000) / 1000000;
 }
 
 // Основная логика: сравниваем цену с порогом
@@ -42,4 +41,33 @@ async function getPriceDecision() {
   return { status, current_price_eur: price, threshold: THRESHOLD_EUR };
 }
 
-module.exports = { getCurrentPrice, getPriceDecision, THRESHOLD_EUR };
+// Получаем прогноз цен на 24 часа
+async function get24HourForecast() {
+  const now = new Date();
+  const start = new Date(now);
+  start.setMinutes(0, 0, 0);
+
+  const end = new Date(start);
+  end.setHours(end.getHours() + 24);
+
+  const url = `https://dashboard.elering.ee/api/nps/price?start=${start.toISOString()}&end=${end.toISOString()}&fields=ee`;
+
+  const response = await axios.get(url, { timeout: 5000 });
+  const data = response.data;
+
+  if (!data?.data?.ee || data.data.ee.length === 0) {
+    throw new Error("No forecast data in Elering response");
+  }
+
+  return data.data.ee.map((item) => {
+    const priceEurKwh = (item.price / 1000) * 1.22;
+    const rounded = Math.round(priceEurKwh * 1000000) / 1000000;
+    return {
+      time: new Date(item.timestamp * 1000).toISOString(),
+      price: rounded,
+      below_threshold: rounded <= THRESHOLD_EUR,
+    };
+  });
+}
+
+module.exports = { getCurrentPrice, getPriceDecision, get24HourForecast, THRESHOLD_EUR };

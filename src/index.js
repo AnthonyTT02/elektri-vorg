@@ -2,7 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const { createServer } = require("http");
 const { WebSocketServer } = require("ws");
-const { getPriceDecision } = require("./priceService");
+const { getPriceDecision, get24HourForecast } = require("./priceService");
 const { initDB } = require("./db");
 const { register, login, authenticate, requireAdmin } = require("./auth");
 const { getDevices, addDevice, updateDevice, deleteDevice, setOverride, logCommand } = require("./devices");
@@ -21,7 +21,6 @@ app.use(express.json());
 wss.on("connection", (ws) => {
   logger.info("WebSocket client connected");
 
-  // Сразу отправляем текущую цену
   getPriceDecision().then((data) => {
     ws.send(JSON.stringify(data));
   });
@@ -60,6 +59,16 @@ app.get("/api/boiler/status", async (req, res) => {
   } catch (error) {
     logger.error("API failure", { event: "api_failure", message: error.message });
     res.status(502).json({ error: "Failed to fetch price data", message: error.message });
+  }
+});
+
+// Прогноз цен на 24 часа
+app.get("/api/forecast", async (req, res) => {
+  try {
+    const forecast = await get24HourForecast();
+    res.json(forecast);
+  } catch (error) {
+    res.status(502).json({ error: "Failed to fetch forecast", message: error.message });
   }
 });
 
