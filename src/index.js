@@ -138,6 +138,38 @@ app.get("/api/savings", authenticate, async (req, res) => {
   }
 });
 
+// Режим отпуска — получить статус
+app.get("/api/vacation", authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      "SELECT vacation_mode FROM users WHERE id = $1",
+      [req.user.id]
+    );
+    res.json({ vacation_mode: rows[0].vacation_mode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Режим отпуска — включить/выключить
+app.post("/api/vacation", authenticate, async (req, res) => {
+  try {
+    const { vacation_mode } = req.body;
+    await pool.query(
+      "UPDATE users SET vacation_mode = $1 WHERE id = $2",
+      [vacation_mode, req.user.id]
+    );
+    if (vacation_mode) {
+      await sendTelegram("🏖️ <b>Режим отпуска включён!</b>\nБойлер не будет включаться пока вы в отпуске.");
+    } else {
+      await sendTelegram("🏠 <b>Режим отпуска выключен!</b>\nБойлер возобновит умную работу.");
+    }
+    res.json({ vacation_mode });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Авторизация
 app.post("/api/auth/register", async (req, res) => {
   try {
