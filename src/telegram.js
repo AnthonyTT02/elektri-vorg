@@ -1,12 +1,12 @@
 const axios = require("axios");
 const logger = require("./logger");
 
-const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-
 async function sendTelegram(message) {
+  const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+  const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
-    logger.warn("Telegram not configured");
+    logger.warn("Telegram not configured", { token: !!TELEGRAM_BOT_TOKEN, chat: !!TELEGRAM_CHAT_ID });
     return;
   }
 
