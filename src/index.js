@@ -71,6 +71,12 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
+// Тест Telegram
+app.get("/api/test-telegram", async (req, res) => {
+  await sendTelegram("🧪 Тест уведомления от Elektri Vorg!");
+  res.json({ ok: true });
+});
+
 // Boiler status
 app.get("/api/boiler/status", async (req, res) => {
   try {
