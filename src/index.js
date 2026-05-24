@@ -7,6 +7,7 @@ const { initDB, pool } = require("./db");
 const { register, login, authenticate, requireAdmin } = require("./auth");
 const { getDevices, addDevice, updateDevice, deleteDevice, setOverride, logCommand } = require("./devices");
 const { sendTelegram } = require("./telegram");
+const { client, httpRequestDuration, httpRequestTotal, deviceCommandsTotal, electricityPrice, wsConnections } = require("./metrics");
 const logger = require("./logger");
 
 const app = express();
@@ -18,11 +19,24 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
+// Middleware для метрик
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on("finish", () => {
+    const duration = (Date.now() - start) / 1000;
+    const route = req.route?.path || req.path;
+    httpRequestDuration.labels(req.method, route, res.statusCode).observe(duration);
+    httpRequestTotal.labels(req.method, route, res.statusCode).inc();
+  });
+  next();
+});
+
 let lastStatus = null;
 
 // WebSocket
 wss.on("connection", (ws) => {
   logger.info("WebSocket client connected");
+  wsConnections.inc();
 
   getPriceDecision().then((data) => {
     ws.send(JSON.stringify(data));
@@ -30,6 +44,7 @@ wss.on("connection", (ws) => {
 
   ws.on("close", () => {
     logger.info("WebSocket client disconnected");
+    wsConnections.dec();
   });
 });
 
@@ -37,6 +52,9 @@ wss.on("connection", (ws) => {
 setInterval(async () => {
   try {
     const data = await getPriceDecision();
+
+    // Обновляем метрику цены
+    electricityPrice.set(data.current_price_eur);
 
     // Уведомление в Telegram если статус изменился
     if (lastStatus !== null && lastStatus !== data.status) {
@@ -52,6 +70,7 @@ setInterval(async () => {
     const { rows: devices } = await pool.query("SELECT id FROM devices");
     for (const device of devices) {
       await logCommand(device.id, data.status, data.current_price_eur);
+      deviceCommandsTotal.labels(data.status).inc();
     }
 
     if (wss.clients.size === 0) return;
@@ -69,6 +88,12 @@ setInterval(async () => {
 // Health check
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
+});
+
+// Prometheus metrics endpoint
+app.get("/metrics", async (req, res) => {
+  res.set("Content-Type", client.register.contentType);
+  res.end(await client.register.metrics());
 });
 
 // Тест Telegram
