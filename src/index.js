@@ -6,6 +6,7 @@ const { getPriceDecision, get24HourForecast } = require("./priceService");
 const { initDB, pool } = require("./db");
 const { register, login, authenticate, requireAdmin } = require("./auth");
 const { getDevices, addDevice, updateDevice, deleteDevice, setOverride, logCommand } = require("./devices");
+const { sendTelegram } = require("./telegram");
 const logger = require("./logger");
 
 const app = express();
@@ -16,6 +17,8 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+let lastStatus = null;
 
 // WebSocket
 wss.on("connection", (ws) => {
@@ -34,6 +37,16 @@ wss.on("connection", (ws) => {
 setInterval(async () => {
   try {
     const data = await getPriceDecision();
+
+    // Уведомление в Telegram если статус изменился
+    if (lastStatus !== null && lastStatus !== data.status) {
+      if (data.status === "ON") {
+        await sendTelegram(`✅ <b>Бойлер включён!</b>\nЦена упала до <b>${data.current_price_eur} €/MWh</b>\nПорог: ${data.threshold} €/MWh`);
+      } else {
+        await sendTelegram(`❌ <b>Бойлер выключен!</b>\nЦена выросла до <b>${data.current_price_eur} €/MWh</b>\nПорог: ${data.threshold} €/MWh`);
+      }
+    }
+    lastStatus = data.status;
 
     // Логируем команду для всех устройств
     const { rows: devices } = await pool.query("SELECT id FROM devices");
