@@ -32,9 +32,16 @@ wss.on("connection", (ws) => {
 
 // Обновляем всех клиентов каждые 30 секунд
 setInterval(async () => {
-  if (wss.clients.size === 0) return;
   try {
     const data = await getPriceDecision();
+
+    // Логируем команду для всех устройств
+    const { rows: devices } = await pool.query("SELECT id FROM devices");
+    for (const device of devices) {
+      await logCommand(device.id, data.status, data.current_price_eur);
+    }
+
+    if (wss.clients.size === 0) return;
     wss.clients.forEach((client) => {
       if (client.readyState === 1) {
         client.send(JSON.stringify(data));
