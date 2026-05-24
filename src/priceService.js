@@ -3,6 +3,9 @@ const logger = require("./logger");
 
 const THRESHOLD_EUR = parseFloat(process.env.THRESHOLD_EUR || "0.10");
 
+// Кэш последней известней цены
+let lastKnownPrice = null;
+
 // Получаем текущую цену с Elering API
 async function getCurrentPrice() {
   const now = new Date();
@@ -14,22 +17,43 @@ async function getCurrentPrice() {
 
   const url = `https://dashboard.elering.ee/api/nps/price?start=${start.toISOString()}&end=${end.toISOString()}&fields=ee`;
 
-  const response = await axios.get(url, { timeout: 5000 });
-  const data = response.data;
+  try {
+    const response = await axios.get(url, { timeout: 5000 });
+    const data = response.data;
 
-  if (!data?.data?.ee || data.data.ee.length === 0) {
-    throw new Error("No price data in Elering response");
+    if (!data?.data?.ee || data.data.ee.length === 0) {
+      throw new Error("No price data in Elering response");
+    }
+
+    const priceEurMwh = data.data.ee[0].price;
+    const priceEurKwh = (priceEurMwh / 1000) * 1.22;
+    const price = Math.round(priceEurKwh * 1000000) / 1000000;
+
+    lastKnownPrice = price;
+    return price;
+
+  } catch (err) {
+    if (lastKnownPrice !== null) {
+      logger.warn("Elering API unavailable, using last known price", {
+        error: err.message,
+        lastKnownPrice,
+      });
+      return lastKnownPrice;
+    }
+    logger.error("Elering API unavailable and no cached price", { error: err.message });
+    throw err;
   }
-
-  const priceEurMwh = data.data.ee[0].price;
-  const priceEurKwh = (priceEurMwh / 1000) * 1.22;
-
-  return Math.round(priceEurKwh * 1000000) / 1000000;
 }
 
 // Основная логика: сравниваем цену с порогом
 async function getPriceDecision() {
   const price = await getCurrentPrice();
+
+  if (price < 0) {
+    logger.info("Negative price detected, boiler forced ON", { price });
+    return { status: "ON", current_price_eur: price, threshold: THRESHOLD_EUR, note: "negative_price" };
+  }
+
   const status = price <= THRESHOLD_EUR ? "ON" : "OFF";
 
   logger.info("Price check", {
@@ -52,22 +76,32 @@ async function get24HourForecast() {
 
   const url = `https://dashboard.elering.ee/api/nps/price?start=${start.toISOString()}&end=${end.toISOString()}&fields=ee`;
 
-  const response = await axios.get(url, { timeout: 5000 });
-  const data = response.data;
+  try {
+    const response = await axios.get(url, { timeout: 5000 });
+    const data = response.data;
 
-  if (!data?.data?.ee || data.data.ee.length === 0) {
-    throw new Error("No forecast data in Elering response");
+    if (!data?.data?.ee || data.data.ee.length === 0) {
+      throw new Error("No forecast data in Elering response");
+    }
+
+    return data.data.ee.map((item) => {
+      const priceEurKwh = (item.price / 1000) * 1.22;
+      const rounded = Math.round(priceEurKwh * 1000000) / 1000000;
+      return {
+        time: new Date(item.timestamp * 1000).toISOString(),
+        price: rounded,
+        below_threshold: rounded <= THRESHOLD_EUR,
+      };
+    });
+  } catch (err) {
+    logger.error("Forecast API unavailable", { error: err.message });
+    throw err;
   }
-
-  return data.data.ee.map((item) => {
-    const priceEurKwh = (item.price / 1000) * 1.22;
-    const rounded = Math.round(priceEurKwh * 1000000) / 1000000;
-    return {
-      time: new Date(item.timestamp * 1000).toISOString(),
-      price: rounded,
-      below_threshold: rounded <= THRESHOLD_EUR,
-    };
-  });
 }
 
-module.exports = { getCurrentPrice, getPriceDecision, get24HourForecast, THRESHOLD_EUR };
+// Для тестов — сброс кэша
+function resetCache() {
+  lastKnownPrice = null;
+}
+
+module.exports = { getCurrentPrice, getPriceDecision, get24HourForecast, THRESHOLD_EUR, resetCache };
