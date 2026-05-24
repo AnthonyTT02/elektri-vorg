@@ -1,5 +1,7 @@
 const express = require("express");
 const cors = require("cors");
+const { createServer } = require("http");
+const { WebSocketServer } = require("ws");
 const { getPriceDecision } = require("./priceService");
 const { initDB } = require("./db");
 const { register, login, authenticate, requireAdmin } = require("./auth");
@@ -7,17 +9,50 @@ const { getDevices, addDevice, updateDevice, deleteDevice, setOverride, logComma
 const logger = require("./logger");
 
 const app = express();
+const server = createServer(app);
+const wss = new WebSocketServer({ server });
+
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+
+// WebSocket
+wss.on("connection", (ws) => {
+  logger.info("WebSocket client connected");
+
+  // Сразу отправляем текущую цену
+  getPriceDecision().then((data) => {
+    ws.send(JSON.stringify(data));
+  });
+
+  ws.on("close", () => {
+    logger.info("WebSocket client disconnected");
+  });
+});
+
+// Обновляем всех клиентов каждые 30 секунд
+setInterval(async () => {
+  if (wss.clients.size === 0) return;
+  try {
+    const data = await getPriceDecision();
+    wss.clients.forEach((client) => {
+      if (client.readyState === 1) {
+        client.send(JSON.stringify(data));
+      }
+    });
+    logger.info("WebSocket broadcast", { price: data.current_price_eur, clients: wss.clients.size });
+  } catch (err) {
+    logger.error("WebSocket broadcast failed", { message: err.message });
+  }
+}, 30000);
 
 // Health check
 app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-// Boiler status (публичный endpoint для устройств)
+// Boiler status
 app.get("/api/boiler/status", async (req, res) => {
   try {
     const result = await getPriceDecision();
@@ -104,7 +139,7 @@ app.post("/api/devices/:id/override", authenticate, async (req, res) => {
 // Запуск
 if (require.main === module) {
   initDB().then(() => {
-    app.listen(PORT, () => {
+    server.listen(PORT, () => {
       logger.info("Server started", { port: PORT });
     });
   });
