@@ -99,6 +99,23 @@ app.get("/api/test-telegram", async (req, res) => {
   res.json({ ok: true });
 });
 
+// Создать admin
+app.post("/api/auth/make-admin", async (req, res) => {
+  try {
+    const { username, secret } = req.body;
+    if (secret !== process.env.ADMIN_SECRET) {
+      return res.status(403).json({ error: "Invalid secret" });
+    }
+    const { rows } = await pool.query(
+      "UPDATE users SET role = 'admin' WHERE username = $1 RETURNING id, username, role",
+      [username]
+    );
+    res.json(rows[0]);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Boiler status
 app.get("/api/boiler/status", async (req, res) => {
   try {
