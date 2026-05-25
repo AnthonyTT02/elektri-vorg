@@ -140,6 +140,9 @@ app.get("/api/forecast", async (req, res) => {
 // Отчёт экономии
 app.get("/api/savings", authenticate, async (req, res) => {
   try {
+    const fixedPrice = parseFloat(req.query.fixedPrice) || null;
+    const powerKwh = parseFloat(req.query.powerKwh) || 1;
+
     const { rows } = await pool.query(`
       SELECT 
         COUNT(*) FILTER (WHERE command = 'ON') as hours_on,
@@ -159,19 +162,41 @@ app.get("/api/savings", authenticate, async (req, res) => {
     const avgPriceOff = parseFloat(stats.avg_price_off) || 0;
     const totalCostSmart = parseFloat(stats.total_cost_smart) || 0;
 
-    const avgPriceAll = (totalCostSmart + (avgPriceOff * hoursOff)) / (hoursOn + hoursOff) || 0;
-    const costIfAlwaysOn = avgPriceAll * (hoursOn + hoursOff);
-    const savings = costIfAlwaysOn - totalCostSmart;
+    // total_cost_smart — это сумма цен (€/kWh) за часы ON, умножаем на kWh потребления
+    const totalCostSmartReal = totalCostSmart * powerKwh;
 
-    res.json({
+    const avgPriceAll = (totalCostSmart + (avgPriceOff * hoursOff)) / (hoursOn + hoursOff) || 0;
+    const costIfAlwaysOn = avgPriceAll * (hoursOn + hoursOff) * powerKwh;
+    const savings = costIfAlwaysOn - totalCostSmartReal;
+
+    const response = {
       hours_on: hoursOn,
       hours_off: hoursOff,
       avg_price_on: Math.round(avgPriceOn * 1000000) / 1000000,
       avg_price_off: Math.round(avgPriceOff * 1000000) / 1000000,
-      total_cost_smart: Math.round(totalCostSmart * 1000000) / 1000000,
+      total_cost_smart: Math.round(totalCostSmartReal * 1000000) / 1000000,
       savings: Math.round(savings * 1000000) / 1000000,
       period_days: 30,
-    });
+      power_kwh: powerKwh,
+    };
+
+    // Сравнение с фиксированным пакетом
+    if (fixedPrice !== null && fixedPrice > 0) {
+      const costFixed = hoursOn * fixedPrice * powerKwh;
+      const savingsVsFixed = costFixed - totalCostSmartReal;
+      const savingsPercent = costFixed > 0 ? (savingsVsFixed / costFixed) * 100 : 0;
+
+      response.fixed_comparison = {
+        fixed_price: fixedPrice,
+        cost_fixed: Math.round(costFixed * 1000000) / 1000000,
+        cost_smart: Math.round(totalCostSmartReal * 1000000) / 1000000,
+        savings_vs_fixed: Math.round(savingsVsFixed * 1000000) / 1000000,
+        savings_percent: Math.round(savingsPercent * 100) / 100,
+        is_smart_better: savingsVsFixed > 0,
+      };
+    }
+
+    res.json(response);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
